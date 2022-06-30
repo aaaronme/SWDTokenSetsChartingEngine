@@ -1,16 +1,26 @@
 import { createAlchemyWeb3 } from "@alch/alchemy-web3";
+const { performance } = require("perf_hooks");
+
 import axios from "axios";
+import { createObjectCsvWriter } from "csv-writer";
 import { AbiItem } from "web3-utils";
-import { ADDRESSES, asyncForEach, COMMON_DECIMALS } from "./stuff";
+import {
+  ACTIVE_ADDRESSES,
+  ADDRESSES,
+  asyncForEach,
+  BLOCKS,
+  COMMON_DECIMALS,
+} from "./stuff";
 const ERC20ABI = require("../abi/ERC20");
 const TokenSetABI = require("../abi/TokenSetABI");
 
 export const alchemyApiKey = process.env.ALCHEMY_API_KEY || "";
-export const baseUrl0x: string = process.env.BASE_URL_0X || "";
+export const baseUrl0x: string =
+  process.env.BASE_URL_0X || "http://localhost:3002/swap/v1";
 export const web3 = createAlchemyWeb3(
   "https://polygon-mainnet.g.alchemy.com/v2/" + alchemyApiKey
 );
-console.log(baseUrl0x, alchemyApiKey);
+
 export const getDecimals = async (addr: string): Promise<string> => {
   if (addr in COMMON_DECIMALS) {
     return COMMON_DECIMALS[addr];
@@ -86,13 +96,25 @@ const getTokenSetHistory = async (
   stepSize: number,
   stepCount: number
 ) => {
-  const latest: number = await web3.eth.getBlockNumber();
-  let masterObj = [];
+  // const latest: number = await web3.eth.getBlockNumber();
+  let masterObj: { component: string; unit: string }[][] = [];
+  let done = false;
+
   for (var i = 0; i <= stepCount; i++) {
-    var block = latest - stepSize * i;
-    masterObj.push(await getTokenSetPositions(contractAddr, block));
+    if (!done) {
+      var block = BLOCKS[i];
+      await getTokenSetPositions(contractAddr, block)
+        .then((r) => {
+          masterObj.push(r);
+        })
+        .catch(() => {
+          stepSize = i - 2;
+          done = true;
+          // return { masterObj, stepSize: i };
+        });
+    }
   }
-  return masterObj;
+  return { masterObj, stepSize };
 };
 
 const getAllTSComponents = (
@@ -144,11 +166,6 @@ const calculatePriceHistory = async (
       let p = allPrices[index].prices[i];
       price += amount * p;
     });
-    // await masterObj[i].forEach(async (e, index) => {
-    //   price +=
-    //     (parseInt(e.unit) / 10 ** parseInt(await getDecimals(e.component))) *
-    //     allPrices[index].prices[i];
-    // });
     prices.push(price);
   });
   return prices;
@@ -159,21 +176,22 @@ const getFullTokenSetPriceHistory = async (
   stepSize: number,
   stepCount: number
 ) => {
+  console.log(`[getTokenSetHistory]`);
   const tokenSetHistory = await getTokenSetHistory(
     contractAddr,
     stepSize,
     stepCount
   );
-  const components = getAllTSComponents(tokenSetHistory);
+  console.log(`[getAllTSComponents]`);
+  const components = getAllTSComponents(tokenSetHistory.masterObj);
+  console.log(`[getPriceHistoryForComponents]`);
   const allPrices = await getPriceHistoryForComponents(
     components,
-    stepSize,
+    tokenSetHistory.stepSize,
     stepCount
   );
-  // console.log(tokenSetHistory);
-  // console.log(components);
-  // console.log(allPrices);
-  return await calculatePriceHistory(tokenSetHistory, allPrices);
+  console.log(`[calculatePriceHistory]`);
+  return await calculatePriceHistory(tokenSetHistory.masterObj, allPrices);
 };
 
 export const chartingEngine = async (
@@ -190,6 +208,7 @@ export const chartingEngine = async (
       stepCount
     );
   } else {
+    console.log(`[getTokenPrrice] of Token`);
     const p = await getTokenPrice(contractAddr, stepSize, stepCount);
     prices = p[0].prices;
   }
@@ -214,7 +233,24 @@ export const chartingEngine = async (
 // calculatePriceHistory => takes getTokenSetHistory, getPriceHistoryForComponents and returns calculated prce history [price,price,...]
 // getFullTokenSetPriceHistory => Takes TokenSetAddress Only, stepSize and SetCount, return [] of prices
 
-// (async () =>
-//   console.log(
-//     await chartingEngine("0x25Ad32265c9354c29e145c902aE876f6B69806F2", 37565, 3)
-//   ))();
+(async () => {
+  for (var symbol in ACTIVE_ADDRESSES) {
+    if (ACTIVE_ADDRESSES.hasOwnProperty(symbol)) {
+      console.log(`Getting ${symbol}`);
+      var startTime = performance.now();
+      const csvWriter = createObjectCsvWriter({
+        path: `./csv/${symbol}.csv`,
+        header: [
+          { id: "date", title: "date" },
+          { id: "price", title: "price" },
+        ],
+      });
+      const result = await chartingEngine(ACTIVE_ADDRESSES[symbol], 37565, 365);
+      await csvWriter
+        .writeRecords(result)
+        .then(() => console.log(`CSV Written for ${symbol}`));
+      var endTime = performance.now();
+      console.log(`Getting ${symbol} took: ${endTime - startTime}`);
+    }
+  }
+})();
