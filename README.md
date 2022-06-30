@@ -1,6 +1,6 @@
 
 
-To start, add your env's, for now its not set  up to run like this with env, only on a server. to test it, insert the env's on line 8 & 9 in `main.ts`
+To start, add your env's, for now its not set  up to run like this with env, only on a server. to test it, insert the env's on line 17 & 19 in `main.ts`
 
 Don't forget to install all the dependencies. 
 
