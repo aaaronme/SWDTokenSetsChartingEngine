@@ -5,11 +5,11 @@ import axios from "axios";
 import { createObjectCsvWriter } from "csv-writer";
 import { AbiItem } from "web3-utils";
 import {
-  ACTIVE_ADDRESSES,
   ADDRESSES,
+  ACTIVE_ADDRESSES,
   asyncForEach,
   BLOCKS,
-  COMMON_DECIMALS,
+  PRECISION_REQUIRED,
 } from "./stuff";
 const ERC20ABI = require("../abi/ERC20");
 const TokenSetABI = require("../abi/TokenSetABI");
@@ -21,6 +21,7 @@ export const web3 = createAlchemyWeb3(
   "https://polygon-mainnet.g.alchemy.com/v2/" + alchemyApiKey
 );
 
+/*
 export const getDecimals = async (addr: string): Promise<string> => {
   if (addr in COMMON_DECIMALS) {
     return COMMON_DECIMALS[addr];
@@ -51,11 +52,19 @@ const getTokenPrice = async (
     ];
   }
 
+  let precision: boolean = false;
+  data.forEach((d) => {
+    if (PRECISION_REQUIRED.includes(d.tokenAddress.toLowerCase())) {
+      precision = true;
+    }
+  });
+
   const price = await axios
     .post(baseUrl0x + `/history`, {
       buyTokens: data,
-      stepSize: stepSize,
-      stepCount: stepCount,
+      stepSize,
+      stepCount,
+      precision,
     })
     .then((response) => {
       return response.data; // return price and decimals
@@ -223,6 +232,7 @@ export const chartingEngine = async (
   });
   return response;
 };
+*/
 
 // getDecimals => get Decimals
 // getTokenPrice => get Token Price (data,stepSize, stepCount) stepSize = 37565 1 Day --- data can be only tokenAddress or {tokenaddress, decimals, symbol}
@@ -233,24 +243,75 @@ export const chartingEngine = async (
 // calculatePriceHistory => takes getTokenSetHistory, getPriceHistoryForComponents and returns calculated prce history [price,price,...]
 // getFullTokenSetPriceHistory => Takes TokenSetAddress Only, stepSize and SetCount, return [] of prices
 
-(async () => {
-  for (var symbol in ACTIVE_ADDRESSES) {
-    if (ACTIVE_ADDRESSES.hasOwnProperty(symbol)) {
-      console.log(`Getting ${symbol}`);
-      var startTime = performance.now();
-      const csvWriter = createObjectCsvWriter({
-        path: `./csv/${symbol}.csv`,
-        header: [
-          { id: "date", title: "date" },
-          { id: "price", title: "price" },
-        ],
+const chartingEngine = async (addr: string) => {
+  const response: { date: number | string; price: number }[] = [];
+  if (ADDRESSES.includes(addr)) {
+    const tokenSet = new web3.eth.Contract(TokenSetABI as AbiItem[], addr);
+    await asyncForEach(BLOCKS, async (b,) => {
+      const date = (await web3.eth.getBlock(b)).timestamp;
+      let components: { component: string; unit: string }[];
+      const prePositions = tokenSet.methods.getPositions();
+      try {
+        components = await prePositions.call(b);
+      } catch {
+        response.push({ date, price: 0 });
+        return;
+      }
+      let precision = false;
+      const tokens: { symbol: string; decimals: number; tokenAddress: string }[] = [];
+      await asyncForEach(components, async (c, i) => {
+        if (PRECISION_REQUIRED.includes(c.component.toLowerCase())) {
+          precision = true;
+        }
+        await web3.alchemy.getTokenMetadata(c.component)
+          .then((r) => {
+            tokens.push({
+              symbol: i.toString(),
+              decimals: r?.decimals || 18,
+              tokenAddress: c.component
+            });
+          })
+          .catch((err) => {
+            console.log(err);
+          });
       });
-      const result = await chartingEngine(ACTIVE_ADDRESSES[symbol], 37565, 365);
-      await csvWriter
-        .writeRecords(result)
-        .then(() => console.log(`CSV Written for ${symbol}`));
-      var endTime = performance.now();
-      console.log(`Getting ${symbol} took: ${endTime - startTime}`);
-    }
+      const prices: { symbol: string; prices: number[] }[] =
+        (await axios.post(baseUrl0x + `/history`, { buyTokens: tokens, startBlock: b, precision }))
+          .data;
+      let price = 0;
+      await asyncForEach(prices, async (p) => {
+        price += (+components[+p.symbol].unit / 10 ** tokens[+p.symbol].decimals) * p.prices[0];
+      });
+      response.push({ date, price });
+    });
+  } else {
+    await asyncForEach(BLOCKS, async (b,) => {
+      const date = (await web3.eth.getBlock(b)).timestamp;
+      const token = [{ symbol: "", decimals: 18, tokenAddress: addr }];
+      const prices: { symbol: string; prices: number[] }[] =
+        (await axios.post(baseUrl0x + `/history`, { buyTokens: token, startBlock: b })).data;
+      response.push({ date, price: prices[0].prices[0] });
+    });
+  }
+  return response;
+};
+
+(async () => {
+  for (let symbol in ACTIVE_ADDRESSES) {
+    console.log(`Getting ${symbol}`);
+    let startTime = performance.now();
+    const csvWriter = createObjectCsvWriter({
+      path: `./csv/${symbol}.csv`,
+      header: [
+        { id: "date", title: "date" },
+        { id: "price", title: "price" },
+      ],
+    });
+    const result = await chartingEngine(ACTIVE_ADDRESSES[symbol]);
+    await csvWriter
+      .writeRecords(result)
+      .then(() => console.log(`CSV Written for ${symbol}`));
+    let endTime = performance.now();
+    console.log(`Getting ${symbol} took: ${endTime - startTime}`);
   }
 })();
