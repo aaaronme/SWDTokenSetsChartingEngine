@@ -245,16 +245,21 @@ export const chartingEngine = async (
 
 const chartingEngine = async (addr: string) => {
   const response: { date: number | string; price: number }[] = [];
-  if (ADDRESSES.includes(addr)) {
+  if (ADDRESSES.includes(addr.toLowerCase())) {
     const tokenSet = new web3.eth.Contract(TokenSetABI as AbiItem[], addr);
     await asyncForEach(BLOCKS, async (b,) => {
-      const date = (await web3.eth.getBlock(b)).timestamp;
+      const preTimestamp = (await web3.eth.getBlock(b)).timestamp;
+      let timestamp: number =
+        typeof (preTimestamp) == "string" ? parseInt(preTimestamp) : preTimestamp;
+      timestamp = Math.round(timestamp / 86400) * 86400;
+      const fullDate = new Date(+timestamp * 1000);
+      const date =
+        `${fullDate.getUTCFullYear()}-${fullDate.getUTCMonth() + 1}-${fullDate.getUTCDate()}`;
       let components: { component: string; unit: string }[];
       const prePositions = tokenSet.methods.getPositions();
       try {
         components = await prePositions.call(b);
       } catch {
-        response.push({ date, price: 0 });
         return;
       }
       let precision = false;
@@ -286,11 +291,19 @@ const chartingEngine = async (addr: string) => {
     });
   } else {
     await asyncForEach(BLOCKS, async (b,) => {
-      const date = (await web3.eth.getBlock(b)).timestamp;
+      const preTimestamp = (await web3.eth.getBlock(b)).timestamp;
+      let timestamp: number =
+        typeof (preTimestamp) == "string" ? parseInt(preTimestamp) : preTimestamp;
+      timestamp = Math.round(timestamp / 86400) * 86400;
+      const fullDate = new Date(+timestamp * 1000);
+      const date =
+        `${fullDate.getUTCFullYear()}-${fullDate.getUTCMonth() + 1}-${fullDate.getUTCDate()}`;
       const token = [{ symbol: "", decimals: 18, tokenAddress: addr }];
       const prices: { symbol: string; prices: number[] }[] =
         (await axios.post(baseUrl0x + `/history`, { buyTokens: token, startBlock: b })).data;
-      response.push({ date, price: prices[0].prices[0] });
+      if (prices[0].prices[0] !== 0) {
+        response.push({ date, price: prices[0].prices[0] });
+      }
     });
   }
   return response;
@@ -309,7 +322,7 @@ const chartingEngine = async (addr: string) => {
     });
     const result = await chartingEngine(ACTIVE_ADDRESSES[symbol]);
     await csvWriter
-      .writeRecords(result)
+      .writeRecords(result.reverse())
       .then(() => console.log(`CSV Written for ${symbol}`));
     let endTime = performance.now();
     console.log(`Getting ${symbol} took: ${endTime - startTime}`);
