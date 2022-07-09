@@ -253,8 +253,15 @@ const chartingEngine = async (addr: string) => {
         typeof (preTimestamp) == "string" ? parseInt(preTimestamp) : preTimestamp;
       timestamp = Math.round(timestamp / 86400) * 86400;
       const fullDate = new Date(+timestamp * 1000);
-      const date =
-        `${fullDate.getUTCFullYear()}-${fullDate.getUTCMonth() + 1}-${fullDate.getUTCDate()}`;
+      let month = (fullDate.getUTCMonth() + 1).toString();
+      if (month.length < 2) {
+        month = "0" + month;
+      }
+      let day = fullDate.getUTCDate().toString();
+      if (day.length < 2) {
+        day = "0" + day;
+      }
+      const date = `${fullDate.getUTCFullYear()}-${month}-${day}`;
       let components: { component: string; unit: string }[];
       const prePositions = tokenSet.methods.getPositions();
       try {
@@ -296,8 +303,15 @@ const chartingEngine = async (addr: string) => {
         typeof (preTimestamp) == "string" ? parseInt(preTimestamp) : preTimestamp;
       timestamp = Math.round(timestamp / 86400) * 86400;
       const fullDate = new Date(+timestamp * 1000);
-      const date =
-        `${fullDate.getUTCFullYear()}-${fullDate.getUTCMonth() + 1}-${fullDate.getUTCDate()}`;
+      let month = (fullDate.getUTCMonth() + 1).toString();
+      if (month.length < 2) {
+        month = "0" + month;
+      }
+      let day = fullDate.getUTCDate().toString();
+      if (day.length < 2) {
+        day = "0" + day;
+      }
+      const date = `${fullDate.getUTCFullYear()}-${month}-${day}`;
       const token = [{ symbol: "", decimals: 18, tokenAddress: addr }];
       const prices: { symbol: string; prices: number[] }[] =
         (await axios.post(baseUrl0x + `/history`, { buyTokens: token, startBlock: b })).data;
