@@ -297,6 +297,17 @@ const chartingEngine = async (addr: string) => {
       response.push({ date, price });
     });
   } else {
+    const token = await web3.alchemy.getTokenMetadata(addr)
+      .then((r) => {
+        return [{
+          symbol: r.symbol,
+          decimals: r.decimals,
+          tokenAddress: addr
+        }];
+      })
+      .catch((err) => {
+        console.log(err);
+      });
     await asyncForEach(BLOCKS, async (b,) => {
       const preTimestamp = (await web3.eth.getBlock(b)).timestamp;
       let timestamp: number =
@@ -312,7 +323,6 @@ const chartingEngine = async (addr: string) => {
         day = "0" + day;
       }
       const date = `${fullDate.getUTCFullYear()}-${month}-${day}`;
-      const token = [{ symbol: "", decimals: 18, tokenAddress: addr }];
       const prices: { symbol: string; prices: number[] }[] =
         (await axios.post(baseUrl0x + `/history`, { buyTokens: token, startBlock: b })).data;
       if (prices[0].prices[0] !== 0) {
